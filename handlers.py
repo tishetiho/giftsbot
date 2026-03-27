@@ -302,43 +302,47 @@ async def pre_checkout_handler(pre_checkout_q):
     await pre_checkout_q.answer(ok=True)
 
 @router.message(F.successful_payment)
-async def process_payment(message):
-    payment = message.successful_payment
-    pending = get_pending_purchase(payment.invoice_payload)
+async def process_payment(message: Message):
+    payload = message.successful_payment.invoice_payload
+    pending = get_pending_purchase(payload)
     
-    if not pending:
-        await message.answer("❌ Ошибка.")
-        return
-    
-    add_purchase(
-        user_id=pending.user_id,
-        gift_id=pending.gift_id,
-        recipient_id=pending.recipient_id,
-        anonymous=pending.anonymous,
-        comment_type=pending.comment_type,
-        custom_comment=pending.custom_comment,
-        final_price=pending.final_price,
-        stars_spent=payment.total_amount,
-        payload=payment.invoice_payload
-    )
-    
-    if pending.recipient_id != pending.user_id:
-        try:
-            who = "Аноним" if pending.anonymous else "Пользователь"
-            text = f"🎁 **Вам подарен подарок!**\n\n"
-            text += f"**От:** {who}\n"
-            text += f"**ID:** `{pending.gift_id[:8]}...`\n"
-            text += f"**Цена:** {pending.final_price} ⭐️\n"
-            
-            if pending.custom_comment:
-                text += f"**Комментарий:** {pending.custom_comment}\n"
-            
-            await message.bot.send_message(pending.recipient_id, text, parse_mode="Markdown")
-        except:
-            pass
-    
-    await message.answer("✅ Оплата прошла успешно!")
-    delete_pending_purchase(payment.invoice_payload)
+    if pending:
+        # Сохраняем в основную базу
+        add_purchase(
+            pending.user_id, pending.gift_id, pending.recipient_id,
+            pending.anonymous, pending.comment_type, pending.custom_comment,
+            pending.final_price, message.successful_payment.total_amount, payload
+        )
+        
+        # Информируем пользователя
+        await message.answer(
+            "✅ **Оплата принята!**\n"
+            "Ваш заказ передан администратору. Подарок будет доставлен в ближайшее время."
+        )
+
+        # Оповещаем админов
+        admin_text = (
+            f"💰 **Новая покупка!**\n\n"
+            f"👤 **Отправитель:** `{pending.user_id}`\n"
+            f"🎯 **Получатель:** `{pending.recipient_id}`\n"
+            f"🎁 **ID подарка:** `{pending.gift_id}`\n"
+            f"💬 **Комментарий:** {pending.custom_comment or 'Нет'}\n"
+            f"🕵️ **Анонимно:** {'Да' if pending.anonymous else 'Нет'}"
+        )
+        
+        for admin_id in ADMIN_IDS:
+            try:
+                await message.bot.send_message(
+                    admin_id, 
+                    admin_text, 
+                    reply_markup=admin_confirm_delivery_kb(payload),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Ошибка отправки админу {admin_id}: {e}")
+        
+        # Удаляем из временной таблицы
+        delete_pending_purchase(payload)
 
 @router.message(Command("admin"))
 async def cmd_admin(message):
