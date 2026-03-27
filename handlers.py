@@ -344,6 +344,41 @@ async def process_payment(message: Message):
         # Удаляем из временной таблицы
         delete_pending_purchase(payload)
 
+@router.callback_query(F.data.startswith("delivered_"))
+async def admin_delivery_confirmed(callback: CallbackQuery):
+    # Извлекаем payload из callback_data
+    payload = callback.data.split("_")[1]
+    
+    # Можно вытащить данные о покупке из БД, чтобы знать кому писать
+    conn = sqlite3.connect(DATABASE_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, recipient_id, anonymous FROM purchases WHERE payment_payload = ?", (payload,))
+    res = cur.fetchone()
+    conn.close()
+
+    if res:
+        user_id, recipient_id, anonymous = res
+        
+        # Уведомляем отправителя
+        try:
+            await callback.bot.send_message(user_id, "🎁 Ваш подарок успешно доставлен получателю!")
+        except:
+            pass
+            
+        # Уведомляем получателя (если это не сам отправитель)
+        if recipient_id and int(recipient_id) != user_id:
+            try:
+                from_user = "Анонима" if anonymous else f"пользователя id`{user_id}`"
+                await callback.bot.send_message(
+                    recipient_id, 
+                    f"🎁 Привет! Тебе пришел подарок от {from_user}!"
+                )
+            except:
+                pass
+
+    await callback.message.edit_text(callback.message.text + "\n\n✅ **ОТПРАВЛЕНО**")
+    await callback.answer("Уведомления отправлены!")
+
 @router.message(Command("admin"))
 async def cmd_admin(message):
     if not await is_admin(message.from_user.id):
