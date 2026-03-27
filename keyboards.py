@@ -56,3 +56,13 @@ payment_keyboard = InlineKeyboardMarkup(
         [InlineKeyboardButton(text="💎 Оплатить Stars", pay=True)]
     ]
 )
+
+def admin_confirm_delivery_kb(purchase_payload):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="✅ Подарок отправлен", 
+                callback_data=f"delivered_{purchase_payload}"
+            )]
+        ]
+    )
